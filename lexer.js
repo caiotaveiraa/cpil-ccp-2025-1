@@ -1,287 +1,262 @@
 import fs from 'node:fs'
 
-function openFile() {
+const blanks = [' ', '\t', '\n', '\r']
+
+const regexAlpha = /[A-Za-z]/
+const regexAlphaNum = /[A-Za-z0-9]/
+const regexDigits = /[0-9]/
+
+/* ABRE O ARQUIVO QUE SERÁ ANALISADO */
+const openFile = () => {
+
   // Pega o TERCEIRO parâmetro da linha de comando
   const filename = process.argv[2]
 
-  // Se o nome do arquivo tiver sido fornecido, vamos
-  // abri-lo e lê-lo
+  // Se houver o terceiro parâmetro
   if(filename) {
     try {
-      return fs.readFileSync(filename, 'utf-8')
+      const fileContent = fs.readFileSync(filename, 'utf-8')
+      return fileContent
     }
     catch(error) {
       console.error(error)
-      process.exit(-1)  // Termina a execução com erro
+      process.exit(-1)
     }
   }
   else {
     console.log('Usage: node lexer.js <filename>')
     console.log('No filename provided.')
+    process.exit(-1)    // Termina o script com erro
+  }
+}
+
+const analyze = source => {
+  let state = 0             // Estado do autômato
+  let lexeme = ''           // Lexema sendo lido
+  let char = ''             // Caractere sendo lido
+  let pos                   // Posição sendo processada
+  let row = 1               // Primeira linha
+  let col = 1               // Primeira coluna
+  const symbolsTable = []   // Tabela de símbolos
+
+  // Acrescenta uma quebra de linha ao final do código-fonte
+  // para possibilitar o processamento do último lexema
+  source += '\n'
+
+  // Função que guarda o caractere atual no lexema
+  // e avança para o próximo estado
+  const goToState = nextState => {
+    lexeme += char
+    state = nextState
+  }
+
+  // Acaba de ler um lexema em um estado terminal
+  const finish = finalState => {
+
+    // Só acrescenta o caractere ao lexema se não for um branco
+    if(! blanks.includes(char)) lexeme += char
+    state = finalState
+    
+    // Insere o lexema na tabela de símbolos,
+    // de acordo com o estado atual
+    switch(state) {
+      case 6.1:   // plus
+        symbolsTable.push({lexeme, token: 'PLUS'})
+        break
+
+      case 6.2:   // minus
+        symbolsTable.push({lexeme, token: 'MINUS'})
+        break
+
+      case 6.3:  // times
+        symbolsTable.push({lexeme, token: 'TIMES'})
+        break
+
+      case 6.4:  // div
+        symbolsTable.push({lexeme, token: 'DIV'})
+        break
+
+      case 6.5:  // lparen
+        symbolsTable.push({lexeme, token: 'LPAREN'})
+        break
+
+      case 6.6:  // rparen
+        symbolsTable.push({lexeme, token: 'RPAREN'})
+        break
+
+      case 6.7:  // keyword read e write
+        symbolsTable.push({lexeme, token: 'KEYWORD', value: lexeme})
+        break
+
+      case 6.8: // identifier
+        symbolsTable.push({lexeme, token: 'IDENTIFIER', value: lexeme})
+        break
+
+      case 6.9: // number
+        symbolsTable.push({lexeme, token: 'NUMBER', value: lexeme})
+        break
+
+      case 6.11:  // assign
+        symbolsTable.push({lexeme, token: 'ASSIGN'})
+        break
+
+    }
+
+    // Reseta estado e lexema
+    state = 0
+    lexeme = ''
+  }
+
+  const displayError = () => {
+    console.error(`ERROR [${row}:${col}]: unexpected char "${char}" (state ${state}).`)
+    // Quando houver erro, termina o programa
     process.exit(-1)
   }
-}
 
-// Ler o arquivo do código-fonte e colocar
-// o conteúdo na constante "source"
-const source = openFile()
+  // Percorre todo o código-fonte, caractere a caractere
+  for(pos = 0; pos < source.length; pos++) {
 
-const table = []  // Tabela de símbolos
-let state = 0     // Estado inicial
-let lexeme = ''   // Lexema
-let char = ''     // Caractere atual
+    // Lê um caractere do código-fonte
+    char = source.charAt(pos)
 
-function isDigit(char) {
-  return char.match(/[0-9]/)
-}
+    if(char == '\n') {
+      row++
+      col = 0
+    }
 
-function isLetter(char) {
-  return char.match(/[A-Za-z]/)
-}
+    switch(state) {
+      case 0:
+        
+        if(char === 'r') goToState(1)
 
-function letterOrDigit(char) {
-  return isLetter(char) || isDigit(char)
-}
+        else if(char === 'w') goToState(7)
 
-function isBlank(char) {
-  return [' ', '\t', '\n', '\r'].includes(char)
-}
+        else if(char.match(regexDigits)) goToState(13)
 
-function goToState(newState) {
-  if(! isBlank(char)) lexeme += char
-  state = newState
-}
+        else if(char === '.') goToState(14)
 
-function resetLexeme() {
-  lexeme = ''
-  state = 0
-}
+        else if(char === ':') goToState(17)
 
-function error() {
-  console.log(table)
-  console.error(`==> Error processing lexeme "${lexeme}" at state ${state}, char "${char}"`)
-  process.exit(-1)
-}
+        // Qualquer letra, exceto "r" e "w", já processadas acima
+        else if (char.match(regexAlpha)) goToState(5)
 
-// Percorre o código-fonte, caractere a caractere
-for(char of source) {
+        else if (char === '+') finish(6.1)
 
-  // Máquina de estados (autômato finito)
-  switch(state) {
-    case 0:   // Estado inicial
-      if(char === 'r') goToState(1)
-      else if(char === 'w') goToState(7)
-      else if(isDigit(char)) goToState(13)
-      else if(letterOrDigit(char)) goToState(5)
-      else if(char === '.') goToState(15)
-      else if(char === ':') goToState(17)
-      else if(char === '+') goToState(6.5)
-      else if(char === '-') goToState(6.6)
-      else if(char === '*') goToState(6.7)
-      else if(char === '/') goToState(6.8)
-      else if(char === '(') goToState(6.9)
-      else if(char === ')') goToState(6.11)
-      else if(isBlank(char)) goToState(0)
-      else error()
-      break
+        else if (char === '-') finish(6.2)
 
-    case 1:
-      if(char === 'e') goToState(2)
-      else if(letterOrDigit(char)) goToState(5)
-      else if(isBlank(char)) goToState(6.2)
-      else error()
-      break
+        else if (char === '*') finish(6.3)
 
-    case 2:
-      if(char === 'a') goToState(3)
-      else if(letterOrDigit(char)) goToState(5)
-      else error()
-      break
+        else if (char === '/') finish(6.4)
 
-    case 3:
-      if(char === 'd') goToState(4)
-      else if(letterOrDigit(char)) goToState(5)
-      else error()
-      break
+        else if (char === '(') finish(6.5)
 
-    case 4:
-      if(isBlank(char)) goToState(6.1)
-      else if(letterOrDigit(char)) goToState(5)
-      else error()
-      break
-      
-    case 5:
-      if(letterOrDigit(char)) goToState(5)
-      else if(isBlank(char)) goToState(6.2)
-      else error()
-      break
-      
-    case 6.1:
-      // Insere o lexema "read" na tabela de símbolos
-      table.push({
-        lexeme,
-        tokenName: 'KEYWORD',
-        tokenValue: lexeme
-      })
-      resetLexeme()
-      break
+        else if (char === ')') finish(6.6)
 
-    case 6.2:
-      // Insere o lexema na tabela de símbolos como
-      // um identificador
-      table.push({
-        lexeme,
-        tokenName: 'IDENTIFIER',
-        tokenValue: lexeme
-      })
-      resetLexeme()
-      break
+        // Ignora caracteres em branco
+        else if (blanks.includes(char)) continue
 
-    case 6.3:
-      // Insere o lexema na tabela de símbolos como
-      // um número
-      table.push({
-        lexeme,
-        tokenName: 'NUMBER',
-        tokenValue: lexeme
-      })
-      resetLexeme()
-      break
+        else displayError()
 
-    case 6.4:
-      // Insere o lexema na tabela de símbolos como o
-      // token ASSIGN
-      table.push({
-        lexeme,
-        tokenName: 'ASSIGN'
-      })
-      resetLexeme()
-      break
+        break
 
-    case 6.5:
-      // Insere o lexema na tabela de símbolos como o
-      // token PLUS
-      table.push({
-        lexeme,
-        tokenName: 'PLUS'
-      })
-      resetLexeme()
-      break
+      case 1:
 
-    case 6.6:
-      // Insere o lexema na tabela de símbolos como o
-      // token MINUS
-      table.push({
-        lexeme,
-        tokenName: 'MINUS'
-      })
-      resetLexeme()
-      
-      
-    case 6.7:
-      // Insere o lexema na tabela de símbolos como o
-      // token TIMES
-      table.push({
-        lexeme,
-        tokenName: 'TIMES'
-      })
-      resetLexeme()
-      break
+        if(char === 'e') goToState(2)
+        else if(char.match(regexAlphaNum)) goToState(5)
+        else displayError()
+        break
 
-    case 6.8:
-      // Insere o lexema na tabela de símbolos como o
-      // token DIV
-      table.push({
-        lexeme,
-        tokenName: 'DIV'
-      })
-      resetLexeme()
-      break
+      case 2:
 
-    case 6.9:
-      // Insere o lexema na tabela de símbolos como o
-      // token LPAREN
-      table.push({
-        lexeme,
-        tokenName: 'LPAREN'
-      })
-      resetLexeme()
-      break
+        if(char === 'a') goToState(3)
+        else if(char.match(regexAlphaNum)) goToState(5)
+        else displayError()
+        break
 
-    // case 6.10 seria igual a 6.1
+      case 3:
 
-    case 6.11:
-      // Insere o lexema na tabela de símbolos como o
-      // token RPAREN
-      table.push({
-        lexeme,
-        tokenName: 'RPAREN'
-      })
-      resetLexeme()
-      break
+        if(char === 'd') goToState(4)
+        else if(char.match(regexAlphaNum)) goToState(5)
+        else displayError()
+        break
 
-    case 7:
-      if(char === 'r') goToState(8)
-      else if(letterOrDigit(char)) goToState(5)
-      else error()
-      break
+      case 4:
 
-    case 8:
-      if(char === 'i') goToState(9)
-      else if(letterOrDigit(char)) goToState(5)
-      else error()
-      break
+        if(char.match(regexAlphaNum)) goToState(5)
+        else if(blanks.includes(char)) finish(6.7)
+        else displayError()
+        break
 
-    case 9:
-      if(char === 't') goToState(10)
-      else if(letterOrDigit(char)) goToState(5)
-      else error()
-      break
+      case 5:
 
-    case 10:
-      if(char === 'e') goToState(11)
-      else if(letterOrDigit(char)) goToState(5)
-      else error()
-      break
+        if(char.match(regexAlphaNum)) goToState(5)
+        else if(blanks.includes(char)) finish(6.8)
+        else displayError()
+        break
 
-    case 11:
-      if(isBlank(char)) goToState(6.1)
-      else if(letterOrDigit(char)) goToState(5)
-      else error()
-      break
+      case 7:
+        if(char === 'r') goToState(8)
+        else if(char.match(regexAlphaNum)) goToState(5)
+        else if(blanks.includes(char)) finish(6.8)
+        else displayError()
+        break
 
-    // case 12:     // Idêntico ao estado 6.1
+      case 8:
+        if(char === 'i') goToState(9)
+        else if(char.match(regexAlphaNum)) goToState(5)
+        else if(blanks.includes(char)) finish(6.8)
+        else displayError()
+        break
 
-    case 13:
-      if(isDigit(char)) goToState(13)
-      else if(char === '.') goToState(14)
-      else if(isBlank(char)) goToState(6.3)
-      else error()
-      break
+      case 9:
+        if(char === 't') goToState(10)
+        else if(char.match(regexAlphaNum)) goToState(5)
+        else if(blanks.includes(char)) finish(6.8)
+        else displayError()
+        break
 
-    case 14:
-      if(isBlank(char)) goToState(6.3)
-      else if(isDigit(char)) goToState(15)
-      else error()
-      break
+      case 10:
+        if(char === 'e') goToState(11)
+        else if(char.match(regexAlphaNum)) goToState(5)
+        else if(blanks.includes(char)) finish(6.8)
+        else displayError()
+        break
 
-    case 15:
-      if(isDigit(char)) goToState(16)
-      else error()
-      break
+      case 11:
+        if(char.match(regexAlphaNum)) goToState(5)
+        else if(blanks.includes(char)) finish(6.7)
+        else displayError()
+        break
 
-    case 16:
-      if(isDigit(char)) goToState(16)
-      else if(isBlank(char)) goToState(6.3)
-      else error()
-      break
+      case 13:
+        if(char.match(regexDigits)) goToState(13)
+        else if(char === '.') goToState(14)
+        else if(blanks.includes(char)) finish(6.9)
+        else displayError()
+        break
 
-    case 17:
-      if(char === '=') goToState(6.4)
-      else error()
-      break
+      case 14:
+        if(char.match(regexDigits)) goToState(14)
+        else if(blanks.includes(char)) finish(6.9)
+        else displayError()
+        break
 
+      case 17:
+        if(char === '=') finish(6.11)
+        else displayError()
+        break
+
+    }
+
+    // Incrementa o número da coluna se o caractere não for retorno de carro (\r)
+    if (char !== '\r') col++
+    
   }
+
+  // Exibe a tabela de símbolos
+  console.log('---------------TABELA DE SÍMBOLOS---------------')
+  console.log(symbolsTable)
 }
 
-console.log(table)
+const source = openFile()
+analyze(source)
